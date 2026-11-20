@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "skyla-chat",
+    "skyla-cli",
+    "skyla-ffi",
+    "skyla-server",
+    "skyla-tok",
+    "skyla-types",
+    "skyla-web",
+]
+default-members = [
+    "skyla-chat",
+    "skyla-cli",
+    "skyla-server",
+    "skyla-tok",
+    "skyla-types",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/maulanasdqn/skyla-platform"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["ws"] }
+clap = { version = "4.5", features = ["derive"] }
+console_error_panic_hook = "0.1"
+fancy-regex = "0.14"
+futures = "0.3"
+futures-util = { version = "0.3", features = ["sink"] }
+gloo-net = { version = "0.6", features = ["websocket", "http", "json"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+leptos = { version = "0.8", features = ["csr"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+skyla-chat = { path = "skyla-chat" }
+skyla-engine = { path = "../skyla-kernel/skyla-engine" }
+skyla-gguf = { path = "../skyla-kernel/skyla-gguf" }
+skyla-ref = { path = "../skyla-kernel/skyla-ref" }
+skyla-server = { path = "skyla-server" }
+skyla-shaders = { path = "../skyla-kernel/skyla-shaders" }
+skyla-tok = { path = "skyla-tok" }
+skyla-types = { path = "skyla-types" }
+skyla-vk = { path = "../skyla-kernel/skyla-vk" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+ureq = { version = "2", features = ["json"] }
+tower-http = { version = "0.6", features = ["fs"] }
+web-sys = { version = "0.3", features = ["Element", "KeyboardEvent", "Location", "Window"] }
+
+[profile.release]
+debug = 1
+
+[profile.wasm-release]
+inherits = "release"
+debug = 0
+opt-level = "z"
+lto = true
+codegen-units = 1
