@@ -1,0 +1,22 @@
+import { PERMISSION } from "@app/permissions";
+import { describe, expect, it } from "vitest";
+import { EForbidden } from "../forbidden.ts";
+import { checkRoutePermissions } from "../route-guard.ts";
+
+const guard = checkRoutePermissions({
+	permissions: [PERMISSION.USER_READ],
+});
+
+describe("checkRoutePermissions", () => {
+	it("lets a visitor with every required permission through", (): void => {
+		expect(
+			guard({ context: { permissions: [PERMISSION.USER_READ] } }),
+		).toBeUndefined();
+	});
+
+	it("refuses a visitor without them by raising a forbidden error, not a redirect", (): void => {
+		expect(() =>
+			guard({ context: { permissions: [PERMISSION.NOTE_READ] } }),
+		).toThrow(EForbidden);
+	});
+});

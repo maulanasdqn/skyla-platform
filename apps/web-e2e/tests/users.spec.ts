@@ -1,0 +1,124 @@
+import { adminPathOf } from "@app/contract";
+import { ERROR_MESSAGE, USER_MESSAGE } from "@app/messages";
+import type { TUserCreateInput } from "@app/schemas";
+import { expect, type Page, test } from "@playwright/test";
+import { ROLE_KEY, ROLE_LABEL } from "../support/access.ts";
+import { SEED_CREDENTIALS } from "../support/credentials.ts";
+import {
+	ADMIN_NAV_LABELS,
+	expectNavHidden,
+	expectNavVisible,
+	NAV_LABEL,
+} from "../support/nav.ts";
+import { signIn } from "../support/sign-in.ts";
+import { signOut } from "../support/sign-out.ts";
+import { chooseRowAction } from "../support/row-menu.ts";
+import { rowWithCell } from "../support/table.ts";
+import { selectOption } from "../support/select.ts";
+import { confirmAction } from "../support/confirm.ts";
+import { createUser } from "../support/users.ts";
+
+const NEW_USER: TUserCreateInput = {
+	name: "E2E User",
+	email: "e2e-user@test.app",
+	password: "E2e-password-123",
+	role: ROLE_KEY.MEMBER,
+};
+const RENAMED = "E2E Renamed";
+const RESET_PASSWORD = "E2e-reset-456";
+
+test.describe.configure({ mode: "serial" });
+
+test.describe("users admin flow", () => {
+	let page: Page;
+
+	test.beforeAll(async ({ browser }): Promise<void> => {
+		page = await browser.newPage();
+		await signIn(page, SEED_CREDENTIALS.admin);
+	});
+
+	test.afterAll(async (): Promise<void> => {
+		await page.close();
+	});
+
+	test("creates a user from the form", async (): Promise<void> => {
+		await createUser(page, NEW_USER, ROLE_LABEL[ROLE_KEY.MEMBER]);
+		await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
+
+		const row = rowWithCell(page, NEW_USER.email);
+		await expect(row).toBeVisible();
+		await expect(row).toContainText(NEW_USER.name);
+	});
+
+	test("shows the role as text and changes it from the edit page", async (): Promise<void> => {
+		const row = rowWithCell(page, NEW_USER.email);
+		await expect(row).toContainText(ROLE_LABEL[ROLE_KEY.MEMBER]);
+		await expect(row.getByRole("combobox")).toHaveCount(0);
+
+		await chooseRowAction(page, row, USER_MESSAGE.ACTION_EDIT);
+		await expect(
+			page.getByRole("heading", { name: "Edit user" }),
+		).toBeVisible();
+		await selectOption(
+			page,
+			page.getByRole("combobox", { name: USER_MESSAGE.COLUMN_ROLE }),
+			ROLE_LABEL[ROLE_KEY.VIEWER],
+		);
+		await page.getByRole("button", { name: "Save changes" }).click();
+		await confirmAction(page);
+
+		await expect(page).toHaveURL(/\/users(\?.*)?$/);
+		await expect(rowWithCell(page, NEW_USER.email)).toContainText(
+			ROLE_LABEL[ROLE_KEY.VIEWER],
+		);
+	});
+
+	test("renames the user from the edit page", async (): Promise<void> => {
+		await chooseRowAction(
+			page,
+			rowWithCell(page, NEW_USER.email),
+			USER_MESSAGE.ACTION_EDIT,
+		);
+		await expect(
+			page.getByRole("heading", { name: "Edit user" }),
+		).toBeVisible();
+
+		await page.getByLabel("Name", { exact: true }).fill(RENAMED);
+		await page.getByRole("button", { name: "Save changes" }).click();
+		await confirmAction(page);
+
+		await expect(page).toHaveURL(/\/users(\?.*)?$/);
+		await expect(rowWithCell(page, NEW_USER.email)).toContainText(RENAMED);
+	});
+
+	test("resets the user's password", async (): Promise<void> => {
+		await chooseRowAction(
+			page,
+			rowWithCell(page, NEW_USER.email),
+			USER_MESSAGE.ACTION_EDIT,
+		);
+		await expect(
+			page.getByRole("heading", { name: "Edit user" }),
+		).toBeVisible();
+
+		await page.getByLabel("New password").fill(RESET_PASSWORD);
+		await page.getByRole("button", { name: "Reset password" }).click();
+		await confirmAction(page);
+
+		await expect(page.getByText(USER_MESSAGE.PASSWORD_RESET)).toBeVisible();
+	});
+
+	test("the user signs in with the new password and sees only viewer pages", async (): Promise<void> => {
+		await signOut(page);
+		await signIn(page, { email: NEW_USER.email, password: RESET_PASSWORD });
+
+		await expectNavVisible(page, [NAV_LABEL.OVERVIEW]);
+		await expectNavHidden(page, ADMIN_NAV_LABELS);
+
+		await page.goto(adminPathOf("/users"));
+		await expect(
+			page.getByRole("heading", { name: ERROR_MESSAGE.FORBIDDEN_TITLE }),
+		).toBeVisible();
+		await expect(page).toHaveURL(/\/users/);
+	});
+});

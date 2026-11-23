@@ -1,0 +1,42 @@
+import { checkRoutePermissions } from "@app/shell/libs/auth/route-guard.ts";
+import { USER_MESSAGE } from "@app/messages";
+import { PERMISSION } from "@app/permissions";
+import { createFileRoute } from "@tanstack/react-router";
+import type { FC, ReactElement } from "react";
+import { FormPage } from "@app/shell/components/form-page.tsx";
+import { roleListOptions } from "#/routes/_authenticated/roles/_hooks/use-roles.ts";
+import { UserCreateForm } from "#/routes/_authenticated/users/_components/user-create-form.tsx";
+import { useRoleOptions } from "#/routes/_authenticated/users/_hooks/use-role-options.ts";
+import { FormPageSkeleton } from "@app/shell/components/form-page-skeleton.tsx";
+import { FormSkeleton } from "@app/components/skeleton/form-skeleton";
+
+const UserCreatePage: FC = (): ReactElement => {
+	const roleOptions = useRoleOptions();
+
+	return (
+		<FormPage
+			parentLabel={USER_MESSAGE.TITLE}
+			parentTo="/users"
+			title={USER_MESSAGE.NEW_USER}
+			description={USER_MESSAGE.CREATE_DESCRIPTION}
+		>
+			<UserCreateForm roleOptions={roleOptions} />
+		</FormPage>
+	);
+};
+
+const UserCreatePending: FC = (): ReactElement => (
+	<FormPageSkeleton>
+		<FormSkeleton fields={4} twoColumn />
+	</FormPageSkeleton>
+);
+
+export const Route = createFileRoute("/_authenticated/users/create")({
+	beforeLoad: checkRoutePermissions({
+		permissions: [PERMISSION.USER_CREATE, PERMISSION.ROLE_READ],
+	}),
+	loader: ({ context }) =>
+		context.queryClient.ensureQueryData(roleListOptions()),
+	component: UserCreatePage,
+	pendingComponent: UserCreatePending,
+});

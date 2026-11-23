@@ -1,0 +1,67 @@
+import { checkRoutePermissions } from "@app/shell/libs/auth/route-guard.ts";
+import { formatDateTime } from "@app/format";
+import { NOTE_MESSAGE } from "@app/messages";
+import { PERMISSION } from "@app/permissions";
+import { createFileRoute } from "@tanstack/react-router";
+import type { FC, ReactElement } from "react";
+import { NoteAttachmentPanel } from "#/routes/_authenticated/notes/_components/note-attachment-panel.tsx";
+import { NoteEditForm } from "#/routes/_authenticated/notes/_components/note-edit-form.tsx";
+import { FormPage } from "@app/shell/components/form-page.tsx";
+import { noteAttachmentListOptions } from "#/routes/_authenticated/notes/_hooks/use-note-attachments.ts";
+import {
+	noteGetOptions,
+	useNoteGet,
+} from "#/routes/_authenticated/notes/_hooks/use-notes.ts";
+import { FormPageSkeleton } from "@app/shell/components/form-page-skeleton.tsx";
+import { FormSkeleton } from "@app/components/skeleton/form-skeleton";
+import { CardSkeleton } from "@app/components/skeleton/card-grid-skeleton";
+
+const NoteEditPage: FC = (): ReactElement => {
+	const { data } = useNoteGet();
+
+	return (
+		<FormPage
+			parentLabel={NOTE_MESSAGE.TITLE}
+			parentTo="/notes"
+			title={NOTE_MESSAGE.EDIT_NOTE}
+			description={NOTE_MESSAGE.EDIT_DESCRIPTION}
+			meta={
+				<dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+					<div className="flex gap-1">
+						<dt>{NOTE_MESSAGE.CREATED_AT}</dt>
+						<dd>{formatDateTime(data.createdAt)}</dd>
+					</div>
+					<div className="flex gap-1">
+						<dt>{NOTE_MESSAGE.UPDATED_AT}</dt>
+						<dd>{formatDateTime(data.updatedAt)}</dd>
+					</div>
+				</dl>
+			}
+		>
+			<div className="flex flex-col gap-6">
+				<NoteEditForm note={data} />
+				<NoteAttachmentPanel noteId={data.id} />
+			</div>
+		</FormPage>
+	);
+};
+
+const NoteEditPending: FC = (): ReactElement => (
+	<FormPageSkeleton>
+		<FormSkeleton fields={1} textArea />
+		<CardSkeleton className="h-72" />
+	</FormPageSkeleton>
+);
+
+export const Route = createFileRoute("/_authenticated/notes/$noteId")({
+	beforeLoad: checkRoutePermissions({ permissions: [PERMISSION.NOTE_UPDATE] }),
+	loader: ({ context, params }) =>
+		Promise.all([
+			context.queryClient.ensureQueryData(noteGetOptions(params.noteId)),
+			context.queryClient.ensureQueryData(
+				noteAttachmentListOptions(params.noteId),
+			),
+		]),
+	component: NoteEditPage,
+	pendingComponent: NoteEditPending,
+});

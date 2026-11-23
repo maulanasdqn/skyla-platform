@@ -1,0 +1,17 @@
+$schema: 'https://moonrepo.dev/schemas/workspace.json'
+
+projects:
+  - 'apps/*'
+  - 'packages/*'
+  - 'crates'
+
+vcs:
+  client: 'git'
+  defaultBranch: 'trunk'
+
+constraints:
+  tagRelationships:
+    infra: ['infra']
+    identity: ['infra']
+    shell: ['infra', 'identity']
+    app: ['infra', 'identity', 'shell']

@@ -1,0 +1,44 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'android'
+layer: 'application'
+language: 'kotlin'
+tags: ['app']
+stack: 'frontend'
+
+workspace:
+  inheritedTasks:
+    exclude: ['check', 'lint', 'format']
+
+tasks:
+  build:
+    command: './gradlew assembleDebug'
+    inputs:
+      - 'app/src/**/*'
+      - 'app/build.gradle.kts'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/libs.versions.toml'
+      - 'gradle.properties'
+    outputs:
+      - 'app/build/outputs/apk'
+    options:
+      runInCI: false
+
+  test:
+    command: './gradlew testDebugUnitTest'
+    inputs:
+      - 'app/src/**/*'
+      - 'app/build.gradle.kts'
+      - 'gradle/libs.versions.toml'
+    options:
+      runInCI: false
+
+  lint:
+    command: './gradlew lint'
+    inputs:
+      - 'app/src/**/*'
+      - 'app/build.gradle.kts'
+      - 'gradle/libs.versions.toml'
+    options:
+      runInCI: false

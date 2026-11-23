@@ -1,0 +1,124 @@
+import { Button } from "@app/components/ui/button";
+import {
+	Card,
+	CardContent,
+	CardFooter,
+	CardHeader,
+} from "@app/components/ui/card";
+import { CardHeading } from "@app/components/ui/card-heading";
+import { Field } from "@app/components/ui/field";
+import { FieldError } from "@app/components/ui/field-error";
+import { Input } from "@app/components/ui/input";
+import { Textarea } from "@app/components/ui/textarea";
+import { APP_MESSAGE, ROLE_MESSAGE } from "@app/messages";
+import { Link } from "@tanstack/react-router";
+import type { FC, ReactElement } from "react";
+import { ConfirmDialog } from "@app/shell/components/confirm-dialog.tsx";
+import { PermissionChecklist } from "#/routes/_authenticated/roles/_components/permission-checklist.tsx";
+import { useRoleCreateForm } from "#/routes/_authenticated/roles/_hooks/use-role-create-form.ts";
+
+export const RoleCreateForm: FC = (): ReactElement => {
+	const { form, onSubmit, confirm, isPending, onLabelChange } =
+		useRoleCreateForm();
+
+	return (
+		<form onSubmit={onSubmit}>
+			<Card>
+				<CardHeader>
+					<CardHeading info={ROLE_MESSAGE.CREATE_DETAILS_DESCRIPTION}>
+						{ROLE_MESSAGE.DETAILS_TITLE}
+					</CardHeading>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-6">
+					<div className="grid gap-6 sm:grid-cols-2">
+						<form.Field name="label">
+							{(field) => (
+								<Field
+									id={field.name}
+									label={ROLE_MESSAGE.FIELD_LABEL}
+									errors={field.state.meta.errors}
+								>
+									{(control): ReactElement => (
+										<Input
+											{...control}
+											placeholder={ROLE_MESSAGE.LABEL_PLACEHOLDER}
+											value={field.state.value}
+											onBlur={field.handleBlur}
+											onChange={(event) => onLabelChange(event.target.value)}
+										/>
+									)}
+								</Field>
+							)}
+						</form.Field>
+						<form.Field name="key">
+							{(field) => (
+								<Field
+									id={field.name}
+									label={ROLE_MESSAGE.FIELD_KEY}
+									errors={field.state.meta.errors}
+								>
+									{(control): ReactElement => (
+										<Input
+											{...control}
+											placeholder={ROLE_MESSAGE.KEY_PLACEHOLDER}
+											value={field.state.value}
+											disabled
+										/>
+									)}
+								</Field>
+							)}
+						</form.Field>
+					</div>
+					<form.Field name="description">
+						{(field) => (
+							<Field
+								id={field.name}
+								label={ROLE_MESSAGE.FIELD_DESCRIPTION}
+								errors={field.state.meta.errors}
+							>
+								{(control): ReactElement => (
+									<Textarea
+										{...control}
+										placeholder={ROLE_MESSAGE.DESCRIPTION_PLACEHOLDER}
+										value={field.state.value ?? ""}
+										onBlur={field.handleBlur}
+										onChange={(event) => field.handleChange(event.target.value)}
+									/>
+								)}
+							</Field>
+						)}
+					</form.Field>
+					<form.Field name="permissions">
+						{(field) => (
+							<div className="flex flex-col gap-2">
+								<span className="text-sm font-medium">
+									{ROLE_MESSAGE.FIELD_PERMISSIONS}
+								</span>
+								<PermissionChecklist
+									value={field.state.value ?? []}
+									onChange={(next) => field.handleChange([...next])}
+								/>
+								<FieldError errors={field.state.meta.errors} />
+							</div>
+						)}
+					</form.Field>
+				</CardContent>
+				<CardFooter className="justify-end gap-2 border-t pt-6">
+					<Button variant="outline" asChild>
+						<Link to="/roles">{APP_MESSAGE.CANCEL}</Link>
+					</Button>
+					<Button type="submit" pending={isPending}>
+						{isPending ? ROLE_MESSAGE.CREATING : ROLE_MESSAGE.CREATE_ACTION}
+					</Button>
+				</CardFooter>
+			</Card>
+			<ConfirmDialog
+				open={confirm.open}
+				title={ROLE_MESSAGE.CREATE_CONFIRM_TITLE}
+				description={ROLE_MESSAGE.CREATE_CONFIRM_DESCRIPTION}
+				onOpenChange={confirm.onOpenChange}
+				onConfirm={confirm.onConfirm}
+			/>
+		</form>
+	);
+};

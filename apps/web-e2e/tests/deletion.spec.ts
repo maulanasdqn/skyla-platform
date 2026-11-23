@@ -1,0 +1,91 @@
+import { adminPathOf } from "@app/contract";
+import { ROLE_MESSAGE, USER_MESSAGE } from "@app/messages";
+import type { TRoleCreateInput, TUserCreateInput } from "@app/schemas";
+import { expect, type Page, test } from "@playwright/test";
+import {
+	PERMISSION_KEY,
+	PERMISSION_LABEL,
+	ROLE_KEY,
+	ROLE_LABEL,
+} from "../support/access.ts";
+import { confirmAction } from "../support/confirm.ts";
+import { SEED_CREDENTIALS } from "../support/credentials.ts";
+import { deleteFromRow, deleteItemOf } from "../support/delete.ts";
+import { closeRowMenu } from "../support/row-menu.ts";
+import { signIn } from "../support/sign-in.ts";
+import { rowWithCell } from "../support/table.ts";
+import { createUser } from "../support/users.ts";
+
+const DOOMED_USER: TUserCreateInput = {
+	name: "E2E Doomed",
+	email: "e2e-doomed@test.app",
+	password: "Doomed-password-123",
+	role: ROLE_KEY.VIEWER,
+};
+
+const DOOMED_ROLE: TRoleCreateInput = {
+	key: "e2e-doomed",
+	label: "E2E Doomed",
+	description: "About to go.",
+	permissions: [PERMISSION_KEY.ACTIVITY_READ],
+};
+
+test.describe.configure({ mode: "serial" });
+
+test.describe("deleting from the lists", () => {
+	let page: Page;
+
+	test.beforeAll(async ({ browser }): Promise<void> => {
+		page = await browser.newPage();
+		await signIn(page, SEED_CREDENTIALS.admin);
+	});
+
+	test.afterAll(async (): Promise<void> => {
+		await page.close();
+	});
+
+	test("deletes another user but never offers to delete the signed-in one", async (): Promise<void> => {
+		await createUser(page, DOOMED_USER, ROLE_LABEL[ROLE_KEY.VIEWER]);
+
+		await expect(
+			await deleteItemOf(page, rowWithCell(page, SEED_CREDENTIALS.admin.email)),
+		).toBeDisabled();
+		await closeRowMenu(page);
+
+		await deleteFromRow(page, rowWithCell(page, DOOMED_USER.email));
+
+		await expect(page.getByText(USER_MESSAGE.DELETED)).toBeVisible();
+		await expect(rowWithCell(page, DOOMED_USER.email)).toHaveCount(0);
+	});
+
+	test("deletes an unused custom role and offers no delete on a fixed one", async (): Promise<void> => {
+		await page.goto(adminPathOf("/roles"));
+		await page.getByRole("link", { name: ROLE_MESSAGE.NEW_ROLE }).click();
+		await expect(page).toHaveURL(/\/roles\/create$/);
+		await page.getByLabel("Label", { exact: true }).fill(DOOMED_ROLE.label);
+		await page
+			.getByLabel("Description", { exact: true })
+			.fill(DOOMED_ROLE.description ?? "");
+		await page
+			.getByRole("checkbox", {
+				name: PERMISSION_LABEL[PERMISSION_KEY.ACTIVITY_READ],
+			})
+			.check();
+		await page
+			.getByRole("button", { name: ROLE_MESSAGE.CREATE_ACTION })
+			.click();
+		await confirmAction(page);
+		await expect(page).toHaveURL(/\/roles$/);
+		await expect(rowWithCell(page, DOOMED_ROLE.key)).toBeVisible();
+
+		await expect(
+			await deleteItemOf(page, rowWithCell(page, ROLE_KEY.ADMIN)),
+		).toHaveCount(0);
+		await closeRowMenu(page);
+
+		await deleteFromRow(page, rowWithCell(page, DOOMED_ROLE.key));
+
+		await expect(page.getByText(ROLE_MESSAGE.DELETED)).toBeVisible();
+		await expect(rowWithCell(page, DOOMED_ROLE.key)).toHaveCount(0);
+	});
+});

@@ -1,0 +1,56 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'crates'
+layer: 'application'
+language: 'rust'
+tags: ['app']
+stack: 'backend'
+
+workspace:
+  inheritedTasks:
+    exclude: ['check', 'lint', 'format']
+
+fileGroups:
+  sources:
+    - '*/src/**/*'
+    - '*/Cargo.toml'
+
+tasks:
+  build:
+    command: 'cargo build --release'
+    inputs:
+      - '@group(sources)'
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+    options:
+      runInCI: false
+
+  test:
+    command: 'cargo test --workspace'
+    inputs:
+      - '@group(sources)'
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+    options:
+      runInCI: false
+
+  check:
+    command: 'cargo clippy --workspace'
+    inputs:
+      - '@group(sources)'
+      - '/Cargo.toml'
+    options:
+      runInCI: false
+
+  format:
+    command: 'cargo fmt --all'
+    options:
+      cache: false
+      runInCI: false
+
+  serve:
+    command: 'cargo run --release -p skyla-cli -- serve'
+    options:
+      cache: false
+      persistent: true
+      runInCI: false

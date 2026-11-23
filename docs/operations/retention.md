@@ -1,0 +1,57 @@
+# Data retention
+
+## Activity log
+
+Every mutation writes a row to `activity_log`, which is what makes the audit trail trustworthy and also what makes the table the fastest growing thing in the database. Rows older than **90 days** are deleted.
+
+`ACTIVITY_RETENTION_DAYS` sets the window and defaults to 90. The worker prunes once at startup and then every 24 hours.
+
+### Why a time window and not a row cap
+
+A row cap is the obvious idea and it is the wrong one for an audit trail. "Keep the newest 100,000 rows" means one busy week silently deletes a quiet month, and the answer to "what happened in July" depends on how busy September was. Retention that shifts under load is not a policy, it is a side effect.
+
+A time window says the same thing every day: anything inside the window is there, anything outside it is gone. That is a sentence you can put in front of an auditor, and it is a sentence you can hold the system to.
+
+### Why 90 days and not 30
+
+Incidents are usually noticed well after they happen, and the audit trail matters most exactly then. Thirty days is comfortably shorter than the gap between a quiet mistake and the question about it. Ninety days costs little, because the table is narrow and the prune is cheap.
+
+### How the prune runs
+
+It deletes in batches of 1,000 and repeats until a batch comes back short, rather than issuing one unbounded `DELETE`. A single statement across months of rows takes a long lock on a table that every write touches, which turns a maintenance job into an outage.
+
+The cutoff is computed once per run and reused for every batch, so a long prune cannot drift forward and leave a ragged edge.
+
+`activity_log_created_at_idx` already exists, so selecting the stale rows is an index scan rather than a table scan.
+
+Running the prune twice at once is harmless. Both passes delete rows that match, and a row already gone simply does not match again, so two workers do not corrupt anything. There is no lock to coordinate.
+
+## Everything else
+
+| Store | Retained | Why |
+|---|---|---|
+| `user`, `note`, `custom_role` | Indefinitely | Business records. Deleting them is a product decision, not an operations one |
+| `newsletter_subscriber` | Until an admin removes it | A sign-up is the reader's own request to hear from you, so it has no expiry. Removing one from `/app/subscribers` deletes the address and records which one went in the activity log |
+| `session`, `account`, `verification` | Managed by better-auth | Sessions expire on their own schedule, and a password reset already deletes the user's sessions |
+| Redis | Minutes to a day | Rate-limit counters expire with their window, job de-duplication claims after 24 hours. Nothing there is a record of anything |
+| RabbitMQ | Until acknowledged | Except the dead-letter queue, which holds until someone drains it. That is the point of it, and it is why the depth is alerted on rather than pruned |
+| Note attachments in object storage | As long as the note that owns them | Removed by the sweep below once the database stops referencing them |
+| Backups | 30 daily, 12 monthly | See [backup-restore.md](backup-restore.md) |
+
+## Attachment objects
+
+An object store is not transactional with the database, so the two can only be kept honest by deciding which one is the truth. Here the database is: `note_attachment` is the list of objects that should exist, and anything in the bucket without a row is garbage.
+
+Every key is claimed in `note_attachment_reap` **before** the object is written, and the claim is released in the same transaction that records the row. The release has to remove exactly one claim, so an upload slow enough for the sweep to have taken its claim rolls back instead of committing a row that points at nothing.
+
+Removing a row claims its key again through an `AFTER DELETE` trigger on `note_attachment`, rather than through application code. That covers every path that deletes a row: removing one image, deleting the note, and the cascade from deleting a user, which reaches `note_attachment` through `note` without any application code running. The worker then deletes, every 15 minutes, every claimed key that no `note_attachment` row refers to, and keeps taking batches until one comes back short. A key the store refuses to delete is pushed back an hour and logged, so it cannot stall the keys behind it. Both the claim and the sweep read the database clock, so a skew between the api and the worker cannot shorten the grace period.
+
+That ordering is what makes each failure survivable:
+
+- a crash between the write and the insert leaves a claim with no row, so the sweep deletes the object
+- a rolled back transaction takes the claim with it, and the object it would have deleted is still referenced, so nothing is lost
+- a delete that commits leaves a claim the sweep acts on, so no object outlives its row, whichever path deleted it
+
+The cost is that a deleted image can sit in the bucket for up to 15 minutes, and that an interrupted upload holds its key for an hour before the sweep treats it as abandoned. Both are cheaper than the alternative, which is deleting an object that something still points at.
+
+A backup taken today still contains activity rows that the live table has since pruned, and it will for as long as that backup is kept. If the retention window is ever set for a legal reason rather than an operational one, the backup retention has to be part of the same conversation.

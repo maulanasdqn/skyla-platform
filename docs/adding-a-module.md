@@ -1,0 +1,86 @@
+# Adding a module
+
+`apps/api` is organised by module, not by layer, so a new capability is a new directory under
+`src/`, not a new file in a shared one. `note` is the reference implementation: it is the smallest
+module that exercises every touchpoint, so read it alongside this list.
+
+Nothing here is discoverable from the directory tree alone, which is the reason the list exists. A
+module that is written but not registered compiles and does nothing.
+
+## Inside `apps/api/src/<module>/`
+
+| Path | Holds |
+|---|---|
+| `domain/<module>.ts` | The row type and the port type (`TNoteRepo`), no Effect program |
+| `application/<module>-<use-case>.ts` | One `Effect.fn("name")(function* ...)` per use case, one file each |
+| `application/to-<module>-dto.ts` | Row to wire shape, so the router never maps by hand |
+| `infrastructure/<module>-repository.ts` | The Drizzle implementation and its `Layer` |
+| `presentation/<module>-router.ts` | The oRPC handlers for the module's contract, each built from `permissionGuarded(...)` in `platform/orpc/implementer.ts`. Method, path, input and output come from `@app/contract`, so a procedure that is not declared there cannot be implemented here |
+| `index.ts` | The only surface other code may import: `{ layer, routerBuild }`. Its type is written out on purpose: an inferred object would pull the router types in, and those reach back to the composition root through the request context, which is a cycle TypeScript refuses |
+
+Use cases carry their own `*.test.ts` next to them. The repository layer is exercised by
+`apps/api-e2e` against real infrastructure rather than mocked.
+
+## Register it
+
+Five edits, none of them optional:
+
+1. `packages/contract/src/<module>.ts`: declare every procedure with `oc.route(...)`, its input and
+   its output, and add the object to `appContract` in `src/index.ts`. The web client is typed from
+   this, so a procedure missing here is invisible to the web
+2. `apps/api/scripts/architecture-rules.ts`: add the module to `MODULE`, and give it an entry in
+   `MODULE_MAY_IMPORT`. An empty array is the right default; a module that imports nothing is a
+   module that can be deleted on its own
+3. `apps/api/src/bootstrap/compose.ts`: add `<module>Module.layer` to the composition. A module that
+   needs only the platform joins the merged module layer; one that needs another module's service
+   is provided with it there, in the composition root, never inside the module
+4. `apps/api/src/bootstrap/router.ts`: add `<module>: <module>Module.routerBuild()`. The router is
+   built with `implementer.router(...)`, so a contract key with no implementation is a type error
+5. `apps/api/src/shared/repo-tags.ts`: add the repository tag id. It is a constant, never a literal
+   at the `Context.Service` call
+
+`moon run api:arch` fails on a module that is missing from the rules, and `api:build` depends on it,
+so a forgotten step 2 stops CI rather than shipping.
+
+## Shared packages it touches
+
+| Package | What the module adds |
+|---|---|
+| `@app/schemas` | `src/<module>/`: the zod input and output schemas, exported from the package index. Both the contract and the web import these, so the wire shape has one definition |
+| `@app/contract` | `src/<module>.ts`: the procedures, each with its method, path, input and output. The API implements it and the web client is typed against it, so neither side depends on the other |
+| `@app/messages` | `src/<module>/message.ts`: a `SCREAMING_SNAKE` const object for every user-facing string |
+| `@app/permissions` | `permissions.ts` for the keys, `roles.ts` to grant them to a fixed role. A key is `<resource>:<action>` in this app and `<app>:<resource>:<action>` in any other app of the workspace. The text the role editor shows lives in `@app/messages`, in `permission/labels.ts` |
+| `@app/activity` | `actions.ts` for the resource type and the action keys. An action is `<resource>.<action>` in this app and `<app>.<resource>.<action>` in any other app. Its label lives in `@app/messages`, in `activity/message.ts` |
+
+## Database
+
+The table lives in `apps/api/src/platform/db/tables/<module>.ts` and is re-exported from
+`db/schema.ts`. Generate the migration with `make db-generate`, never by writing SQL by hand, and
+read the expand and contract rules in [operations/deployment.md](operations/deployment.md) before
+changing a column that already exists.
+
+## Web
+
+A feature is a route directory under `apps/web/src/routes/_authenticated/<module>/`:
+
+```
+index.tsx           the route, renders and nothing else
+_components/*.tsx   presentation
+_hooks/*.ts         useQuery, useMutation, form state, derived values
+```
+
+The split is the rule, not a convention: a component that calls `useQuery` is a review finding.
+
+The shell picks a module up from two registries, and nothing else in the shell names a module:
+
+| File | What the module adds |
+|---|---|
+| `apps/web/src/routes/_authenticated/_constants/nav.ts` | Its entry in one of `NAV_GROUPS`, with the permissions that show it. A group with no entry the role can see is hidden, and the deepest entry that matches the address is the one highlighted, so `/x/y` beside `/x` works |
+| `apps/web/src/routes/_authenticated/dashboard/_constants/widgets.ts` | A stat card in `DASHBOARD_STATS` and a shortcut in `DASHBOARD_ACTIONS`, each with its permissions. Both are optional |
+
+## Browser tests
+
+A module's browser tests live in their own folder, `apps/web-e2e/tests/<module>/`, with any helper
+they need beside them. The specs outside those folders cover the shell and the identity features
+only, so deleting a module is deleting its folder. `notes` shows the layout; an app that does not
+want the reference module removes `tests/notes/` along with the module itself.

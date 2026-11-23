@@ -1,0 +1,32 @@
+import { checkRoutePermissions } from "@app/shell/libs/auth/route-guard.ts";
+import { NOTE_MESSAGE } from "@app/messages";
+import { PERMISSION } from "@app/permissions";
+import { createFileRoute } from "@tanstack/react-router";
+import type { FC, ReactElement } from "react";
+import { NoteCreateForm } from "#/routes/_authenticated/notes/_components/note-create-form.tsx";
+import { FormPage } from "@app/shell/components/form-page.tsx";
+import { FormPageSkeleton } from "@app/shell/components/form-page-skeleton.tsx";
+import { FormSkeleton } from "@app/components/skeleton/form-skeleton";
+
+const NoteCreatePage: FC = (): ReactElement => (
+	<FormPage
+		parentLabel={NOTE_MESSAGE.TITLE}
+		parentTo="/notes"
+		title={NOTE_MESSAGE.NEW_NOTE}
+		description={NOTE_MESSAGE.CREATE_DESCRIPTION}
+	>
+		<NoteCreateForm />
+	</FormPage>
+);
+
+const NoteCreatePending: FC = (): ReactElement => (
+	<FormPageSkeleton>
+		<FormSkeleton fields={1} textArea />
+	</FormPageSkeleton>
+);
+
+export const Route = createFileRoute("/_authenticated/notes/create")({
+	beforeLoad: checkRoutePermissions({ permissions: [PERMISSION.NOTE_CREATE] }),
+	component: NoteCreatePage,
+	pendingComponent: NoteCreatePending,
+});

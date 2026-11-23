@@ -1,0 +1,28 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'ios'
+layer: 'application'
+language: 'swift'
+tags: ['app']
+stack: 'frontend'
+
+workspace:
+  inheritedTasks:
+    exclude: ['check', 'lint', 'format']
+
+tasks:
+  generate:
+    command: 'xcodegen generate'
+    inputs:
+      - 'project.yml'
+    options:
+      cache: false
+      runInCI: false
+
+  build:
+    command: 'xcodebuild -project Skyla.xcodeproj -scheme Skyla -configuration Debug -destination generic/platform=iOS\ Simulator -derivedDataPath build CODE_SIGNING_ALLOWED=NO build'
+    deps:
+      - '~:generate'
+    options:
+      cache: false
+      runInCI: false
