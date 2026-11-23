@@ -1,0 +1,122 @@
+import { PermissionsProvider } from "@app/components/guard/permissions-provider";
+import { PERMISSION, type TPermission } from "@app/permissions";
+import { SORT_DIRECTION, type TUser, USER_SORT } from "@app/schemas";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	render,
+	waitFor,
+	within,
+	type RenderResult,
+	screen,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import type { TSearchControl } from "@app/shell/libs/forms/use-search-form.ts";
+import type { TSearchBoxProps } from "@app/shell/components/search-box.tsx";
+import { describe, expect, it, vi } from "vitest";
+import { UserTable } from "#/routes/_authenticated/users/_components/user-table.tsx";
+import type { TRoleOption } from "#/routes/_authenticated/users/_hooks/use-role-options.ts";
+
+vi.mock("#/routes/_authenticated/users/_components/user-filters.tsx", () => ({
+	UserFilters: (): ReactElement => <button type="button">Filters</button>,
+}));
+
+const ACTIONS_LABEL = "user actions";
+const CREATED_AT = "2026-01-02T03:04:00.000Z";
+const MEMBER_LABEL = "Member";
+
+vi.mock(
+	"#/routes/_authenticated/users/_hooks/use-users.ts",
+	async (importOriginal) => ({
+		...(await importOriginal<Record<string, unknown>>()),
+		useUserSearch: (): TSearchControl => ({ value: "", onChange: vi.fn() }),
+	}),
+);
+
+vi.mock("@app/shell/components/search-box.tsx", () => ({
+	SearchBox: (props: TSearchBoxProps): ReactElement => (
+		<input aria-label={props.label} />
+	),
+}));
+
+vi.mock(
+	"#/routes/_authenticated/users/_components/user-actions-cell.tsx",
+	() => ({
+		UserActionsCell: (): ReactElement => <span>{ACTIONS_LABEL}</span>,
+	}),
+);
+
+const user: TUser = {
+	id: "11111111-1111-4111-8111-111111111111",
+	name: "Ada",
+	email: "ada@test.app",
+	emailVerified: true,
+	image: null,
+	role: "member",
+	deactivatedAt: null,
+	twoFactorEnabled: false,
+	createdAt: CREATED_AT,
+	updatedAt: CREATED_AT,
+};
+
+const roleOptions: readonly TRoleOption[] = [
+	{ value: "member", label: MEMBER_LABEL },
+	{ value: "viewer", label: "Viewer" },
+];
+
+const renderWithPermissions = (
+	permissions: readonly TPermission[],
+): RenderResult => {
+	const queryClient = new QueryClient();
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<PermissionsProvider permissions={permissions}>
+				<UserTable
+					list={{ items: [user], total: 1, page: 1, pageSize: 20 }}
+					roleOptions={roleOptions}
+					sortBy={USER_SORT.CREATED_AT}
+					sortDir={SORT_DIRECTION.ASC}
+					onChange={() => undefined}
+				/>
+			</PermissionsProvider>
+		</QueryClientProvider>,
+	);
+};
+
+describe("UserTable with rows", () => {
+	it("renders the user's name and email in the row", (): void => {
+		renderWithPermissions([]);
+
+		const row = screen.getByRole("row", { name: /ada@test\.app/i });
+		expect(row).toHaveTextContent("Ada");
+		expect(screen.queryByText("No users yet.")).not.toBeInTheDocument();
+	});
+
+	it("shows the role as plain text to someone who cannot edit users", async (): Promise<void> => {
+		renderWithPermissions([]);
+
+		await waitFor((): void => {
+			expect(screen.getByText(MEMBER_LABEL)).toBeVisible();
+		});
+		expect(
+			screen.queryByRole("combobox", { name: `Role for ${user.name}` }),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows the role as plain text to someone who can edit users too", async (): Promise<void> => {
+		renderWithPermissions([PERMISSION.USER_UPDATE]);
+
+		await waitFor((): void => {
+			expect(screen.getByText(MEMBER_LABEL)).toBeVisible();
+		});
+		const row = screen.getByRole("row", { name: /ada@test\.app/i });
+		expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
+	});
+
+	it("gives the row its actions cell", async (): Promise<void> => {
+		renderWithPermissions([]);
+
+		await waitFor((): void => {
+			expect(screen.getByText(ACTIONS_LABEL)).toBeVisible();
+		});
+	});
+});

@@ -1,0 +1,32 @@
+import { checkRoutePermissions } from "@app/shell/libs/auth/route-guard.ts";
+import { PERMISSION_MESSAGE } from "@app/messages";
+import { PERMISSION } from "@app/permissions";
+import { createFileRoute } from "@tanstack/react-router";
+import type { FC, ReactElement } from "react";
+import { PageTitle } from "@app/shell/components/page-title.tsx";
+import { PermissionMatrix } from "#/routes/_authenticated/permissions/_components/permission-matrix.tsx";
+import { roleListOptions } from "#/routes/_authenticated/roles/_hooks/use-roles.ts";
+import { ListPageSkeleton } from "@app/shell/components/list-page-skeleton.tsx";
+
+const PermissionsPage: FC = (): ReactElement => {
+	return (
+		<div className="flex flex-col gap-6">
+			<PageTitle info={PERMISSION_MESSAGE.DESCRIPTION}>
+				{PERMISSION_MESSAGE.TITLE}
+			</PageTitle>
+			<PermissionMatrix />
+		</div>
+	);
+};
+
+const PermissionsPending: FC = (): ReactElement => (
+	<ListPageSkeleton toolbar={false} pagination={false} />
+);
+
+export const Route = createFileRoute("/_authenticated/permissions/")({
+	beforeLoad: checkRoutePermissions({ permissions: [PERMISSION.ROLE_READ] }),
+	loader: ({ context }) =>
+		context.queryClient.ensureQueryData(roleListOptions()),
+	component: PermissionsPage,
+	pendingComponent: PermissionsPending,
+});

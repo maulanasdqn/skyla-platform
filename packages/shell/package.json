@@ -1,0 +1,59 @@
+{
+	"name": "@app/shell",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./*": "./src/*"
+	},
+	"scripts": {
+		"build": "tsc --noEmit",
+		"test": "vitest run --coverage"
+	},
+	"dependencies": {
+		"@app/activity": "workspace:*",
+		"@app/components": "workspace:*",
+		"@app/contract": "workspace:*",
+		"@app/format": "workspace:*",
+		"@app/messages": "workspace:*",
+		"@app/permissions": "workspace:*",
+		"@app/schemas": "workspace:*",
+		"@mobily/ts-belt": "catalog:",
+		"@orpc/client": "catalog:",
+		"@orpc/tanstack-query": "^1.15.7",
+		"@tanstack/react-form": "^1.0.0",
+		"@tanstack/react-query": "^5.104.4",
+		"@tanstack/react-router": "1.170.34",
+		"@tanstack/react-store": "catalog:",
+		"@tanstack/react-table": "^9.3.1",
+		"@tanstack/store": "catalog:",
+		"better-auth": "catalog:",
+		"lucide-react": "catalog:",
+		"motion": "catalog:",
+		"sonner": "^2.0.7",
+		"ts-pattern": "catalog:",
+		"zod": "catalog:"
+	},
+	"peerDependencies": {
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.1.18",
+		"@tanstack/router-plugin": "^1.168.47",
+		"@testing-library/dom": "catalog:",
+		"@testing-library/jest-dom": "^7.0.0",
+		"@testing-library/react": "catalog:",
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"@types/react-dom": "catalog:",
+		"@vitejs/plugin-react": "^6.1.2",
+		"@vitest/coverage-v8": "^5.0.5",
+		"jsdom": "catalog:",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"typescript": "catalog:",
+		"vite": "^8.3.4",
+		"vitest": "catalog:"
+	}
+}

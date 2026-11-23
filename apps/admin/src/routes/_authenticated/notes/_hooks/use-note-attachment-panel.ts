@@ -1,0 +1,120 @@
+import { NOTE_ATTACHMENT_MESSAGE } from "@app/messages";
+import {
+	NOTE_ATTACHMENT_MAX_PER_NOTE,
+	noteAttachmentFileSchema,
+	type TNoteAttachment,
+} from "@app/schemas";
+import { A } from "@mobily/ts-belt";
+import { useIsMutating } from "@tanstack/react-query";
+import { useId, useState, type ChangeEvent, type DragEvent } from "react";
+import { toast } from "sonner";
+import { match } from "ts-pattern";
+import { orpc } from "@app/shell/libs/orpc/client.ts";
+import type { TConfirmedAction } from "@app/shell/hooks/use-confirmed-action.ts";
+import { useConfirmedAction } from "@app/shell/hooks/use-confirmed-action.ts";
+import {
+	useNoteAttachmentList,
+	useNoteAttachmentRemove,
+	useNoteAttachmentUpload,
+} from "#/routes/_authenticated/notes/_hooks/use-note-attachments.ts";
+
+export type TNoteAttachmentPanel = {
+	items: readonly TNoteAttachment[];
+	remaining: number;
+	isFull: boolean;
+	isUploading: boolean;
+	uploadingCount: number;
+	removingId: string | null;
+	isDragging: boolean;
+	inputId: string;
+	onInputChange: (event: ChangeEvent<HTMLInputElement>) => void;
+	onDragOver: (event: DragEvent<HTMLElement>) => void;
+	onDragLeave: () => void;
+	onDrop: (event: DragEvent<HTMLElement>) => void;
+	onRemoveRequest: (id: string) => void;
+	removal: TConfirmedAction<string>;
+};
+
+const FULFILLED = "fulfilled";
+
+const uploadOutcomesAnnounce = (
+	outcomes: readonly PromiseSettledResult<unknown>[],
+): void => {
+	const stored = A.filter(outcomes, (outcome) => outcome.status === FULFILLED);
+
+	match({
+		anyStored: !A.isEmpty(stored),
+		allStored: stored.length === outcomes.length,
+	})
+		.with({ anyStored: false }, (): void => undefined)
+		.with({ allStored: true }, (): void => {
+			toast.success(NOTE_ATTACHMENT_MESSAGE.UPLOADED);
+		})
+		.otherwise((): void => {
+			toast.warning(NOTE_ATTACHMENT_MESSAGE.UPLOAD_FAILED);
+		});
+};
+
+const accepted = (files: readonly File[]): readonly File[] =>
+	A.filter(files, (file) => noteAttachmentFileSchema.safeParse(file).success);
+
+export const useNoteAttachmentPanel = (
+	noteId: string,
+): TNoteAttachmentPanel => {
+	const { data } = useNoteAttachmentList(noteId);
+	const upload = useNoteAttachmentUpload();
+	const remove = useNoteAttachmentRemove();
+	const uploadingCount = useIsMutating({
+		mutationKey: orpc.note.attachment.upload.mutationKey(),
+	});
+	const inputId = useId();
+	const [isDragging, setIsDragging] = useState(false);
+
+	const remaining = NOTE_ATTACHMENT_MAX_PER_NOTE - data.length;
+
+	const removal = useConfirmedAction<string>((id) => remove.mutate({ id }));
+
+	const send = (files: readonly File[]): void => {
+		const allowed = accepted(files);
+		const queued = A.take(allowed, Math.max(remaining, 0));
+
+		match(allowed.length === files.length)
+			.with(false, () => toast.error(NOTE_ATTACHMENT_MESSAGE.REJECTED))
+			.otherwise(() => undefined);
+
+		match(A.isEmpty(queued))
+			.with(true, () => undefined)
+			.otherwise(() => {
+				void Promise.allSettled(
+					A.map(queued, (file) => upload.mutateAsync({ noteId, file })),
+				).then((outcomes): void => uploadOutcomesAnnounce(outcomes));
+			});
+	};
+
+	return {
+		items: data,
+		remaining,
+		isFull: remaining <= 0,
+		isUploading: upload.isPending,
+		uploadingCount,
+		removingId: remove.isPending ? (remove.variables?.id ?? null) : null,
+		isDragging,
+		inputId,
+		onInputChange: (event: ChangeEvent<HTMLInputElement>): void => {
+			send([...(event.target.files ?? [])]);
+			event.target.value = "";
+		},
+		onDragOver: (event: DragEvent<HTMLElement>): void => {
+			event.preventDefault();
+			setIsDragging(true);
+		},
+		onDragLeave: (): void => setIsDragging(false),
+		onDrop: (event: DragEvent<HTMLElement>): void => {
+			event.preventDefault();
+			setIsDragging(false);
+			send([...event.dataTransfer.files]);
+		},
+		onRemoveRequest: removal.request,
+		removal,
+	};
+};

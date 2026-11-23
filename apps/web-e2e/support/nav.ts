@@ -1,0 +1,44 @@
+import { ADMIN_BASE_PATH, adminPathOf } from "@app/contract";
+import { NAV_MESSAGE } from "@app/messages";
+import { expect, type Locator, type Page } from "@playwright/test";
+
+export const NAV_LABEL = NAV_MESSAGE;
+
+export const ADMIN_NAV_LABELS: readonly string[] = [
+	NAV_LABEL.USERS,
+	NAV_LABEL.ROLES,
+	NAV_LABEL.PERMISSIONS,
+	NAV_LABEL.ACTIVITY,
+];
+
+const adminOpen = async (page: Page): Promise<void> => {
+	if (!new URL(page.url()).pathname.startsWith(ADMIN_BASE_PATH)) {
+		await page.goto(adminPathOf("/overview"));
+	}
+};
+
+const navLink = (page: Page, label: string): Locator =>
+	page
+		.locator('[data-sidebar="content"]')
+		.getByRole("link", { name: label, exact: true });
+
+export const expectNavVisible = async (
+	page: Page,
+	labels: readonly string[],
+): Promise<void> => {
+	await adminOpen(page);
+	await Promise.all(
+		labels.map((label) => expect(navLink(page, label)).toBeVisible()),
+	);
+};
+
+export const expectNavHidden = async (
+	page: Page,
+	labels: readonly string[],
+): Promise<void> => {
+	await adminOpen(page);
+	await expect(navLink(page, NAV_LABEL.OVERVIEW)).toBeVisible();
+	await Promise.all(
+		labels.map((label) => expect(navLink(page, label)).toHaveCount(0)),
+	);
+};

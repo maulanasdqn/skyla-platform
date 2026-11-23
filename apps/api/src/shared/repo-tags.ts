@@ -1,0 +1,13 @@
+export const REPO_TAG = {
+	NOTE: "app/NoteRepo",
+	NOTE_ATTACHMENT: "app/NoteAttachmentRepo",
+	NOTE_ATTACHMENT_STORE: "app/NoteAttachmentStore",
+	USER: "app/UserRepo",
+	USER_NOTIFIER: "app/UserNotifier",
+	CUSTOM_ROLE: "app/CustomRoleRepo",
+	ACTIVITY: "app/ActivityRepo",
+	ACTIVITY_RECORDER: "app/ActivityRecorder",
+	ACTIVITY_PRUNER: "app/ActivityPruner",
+	NEWSLETTER_SUBSCRIBER: "app/NewsletterSubscriberRepo",
+	INFERENCE_CLIENT: "app/InferenceClient",
+} as const;

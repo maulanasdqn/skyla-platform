@@ -1,0 +1,143 @@
+# Deployment
+
+## The artifact
+
+One image builds both processes. `Dockerfile` installs the workspace from the lockfile and builds the SPA in a build stage, then assembles the runtime from three things only: a production-only install of the API and the workspace packages it depends on, the API and package sources, and the built web assets served through `WEB_DIST_PATH`. No dev dependency, compiler or test runner crosses over, and `.dockerignore` keeps every `.env` file out of the build context. The production install also excludes optional dependencies, because `better-auth` and `drizzle-orm` declare their integrations (`drizzle-kit`, `vitest`, `react`, `pglite`) as optional peers that a plain production install would otherwise carry into the image. Node runs the TypeScript sources directly, so there is no build step for the API and no loader in front of it: the container command is `node src/main.ts`, which also means a stop signal reaches the process itself and the graceful shutdown runs. The one dependency that stood in the way is `@mobily/ts-belt`, whose ESM entry imports its modules as bare directories, which bundlers tolerate and Node's resolver rejects; `patches/` carries the nine-line patch that spells out the `index.js` files, and pnpm applies it on every install.
+
+The image declares a `HEALTHCHECK` against `GET /healthz`, the liveness probe. The worker runs the same image without an HTTP listener, so `docker-compose.staging.yml` disables the check for that service and points the API's own check at `/ready` instead.
+
+```sh
+make image        # build, tagged with the root package.json version and latest
+make image-run    # run it against the local services
+```
+
+The web build fixes the API address at build time from `VITE_API_URL`. Left unset or empty, the web calls the origin it was loaded from, which is what the image relies on: the API serves the built web through `WEB_DIST_PATH`, so one build answers on whatever address fronts it, a demo link included. Set `VITE_API_URL` only when the API lives on another origin. To serve a local build the same way without the image, build it with the value emptied and point the API at the output with `WEB_DIST_PATH=../web/dist` in `apps/api/.env`:
+
+```sh
+VITE_API_URL= moon run web:build
+make api                          # the web on :3001/app/ and the API on :3001
+```
+
+The web lives under `/app`, the one value `WEB_BASE_PATH` in `@app/contract` that the Vite `base`, the router `basepath`, the API mount and every link the API mails (invites, verification, password and two-factor notices, through `webPathOf`) all read. That leaves the root of the origin free for a landing page without a second domain or a cookie scope to configure. `LANDING_DIST_PATH` points the API at a static landing build and serves it at `/`, with the web routes still answered by the web. Left unset, `/` redirects to `/app/`, so a deployment that needs no landing changes nothing but the address of its app.
+
+The image builds `apps/landing` either way, into `/app/apps/landing/dist`, and serves it only once `LANDING_DIST_PATH` points there. Build the image with `--build-arg LANDING_SITE_URL=https://<host>`, the public origin, because the landing is static and its canonical links, `og:url` and `sitemap.xml` are written at build time; left out, they name `http://localhost:4321`. The API sends every landing response with a Content-Security-Policy that allows scripts and styles from the origin only, so a landing page carries no inline script, style element or `style` attribute, and `apps/landing/test/content-security.test.ts` fails a build that does. Every response from the API, the web and the landing alike, also carries `X-Content-Type-Options: nosniff`, so a browser never reads a served file as a type other than the one declared, and `Referrer-Policy: strict-origin-when-cross-origin`, so a link to another site sends the origin and never the path or query string. `platform/http/mount-secure-headers.ts` sets the two and switches off the other headers Hono's `secureHeaders` would add by default, because a blanket `Cross-Origin-Resource-Policy` or frame policy decides questions this boilerplate leaves to each deployment.
+
+The image is tagged with the root `package.json` version, which is the same value `/health` reports at runtime. That is what lets you confirm which build is actually live rather than which build you believe you deployed.
+
+## Releases
+
+Releases are automatic. Every merge to `trunk` carries a version bump, so the release workflow reads the root `package.json` version on each push to `trunk`, waits for the three required checks to be green on that exact commit, tags it `vX.Y.Z`, and publishes a GitHub release.
+
+The notes are not commit subjects. `.github/scripts/release-notes.sh` walks the commits since the previous tag, follows each `(#N)` back to its pull request, and lifts that PR's **Changelog** section verbatim, plus its **Breaking Changes / Feature Impact** section when it says anything other than None. Entries are grouped by the conventional-commit type of the squash commit. That is why the pull request template calls the Changelog section "For reporting": what is written there is what ships on the release page. A commit with no pull request behind it falls back to its subject line.
+
+The workflow is keyed on the tag rather than on the diff, so a version that already has a tag is skipped and the job is a no-op. That makes it safe to re-run, and `workflow_dispatch` exists for exactly that: re-releasing a version whose publish failed after its checks went green.
+
+## Order of operations
+
+Migrations are forward-only and run as a separate step, never on process start, so that two API replicas coming up at once cannot race each other.
+
+1. Build and push the image for the commit
+2. Run the migrations once, as a job, against the target database: `node src/scripts/migrate.ts` inside the image, which is what `make staging-migrate` does
+3. Roll the API replicas
+4. Roll the worker replicas
+
+Step 2 before step 3 means the schema must stay backward compatible with the currently running code for the duration of the roll. Add columns as nullable or with a default, and remove them in a later release once nothing reads them.
+
+## Staging
+
+`docker-compose.staging.yml` runs the same image as production with its own Postgres, Redis and RabbitMQ, and `.env.staging.example` lists what it needs. `make staging-up`, `make staging-migrate` and `make staging-down` drive it.
+
+**What is here is the specification, not a running environment.** Provisioning a host, pointing a domain at it, and terminating TLS in front of it are infrastructure decisions with a cost attached, and they are not code. Nothing in this repository can make that choice for you. What it can do is make sure that once you have a host, the environment is already described.
+
+Three things the compose file encodes on purpose:
+
+- **`STANDARD_IMAGE` is pinned to a tag**, not `latest`. A staging environment that silently drifts to a newer build cannot be used to rehearse a deploy, because you would not know which build you rehearsed
+- **The api port binds to `127.0.0.1`.** TLS terminates in a reverse proxy in front, which is also what makes `RATE_LIMIT_TRUSTED_PROXY_IPS` meaningful. Exposing the port publicly would defeat both
+- **Secrets are not shared with production.** Staging exists to be broken, so its credentials must not be worth stealing
+
+Staging is where the things that are currently unrehearsed get rehearsed: a rollback to the previous image tag, and the restore drill in [backup-restore.md](backup-restore.md). Both are written down and neither has been run, because until now there has been nowhere to run them.
+
+## Probes
+
+| Probe | Endpoint | Meaning |
+|---|---|---|
+| Liveness | `GET /healthz` | The process is alive. It never checks a dependency, because restarting a process does not fix a dead database |
+| Readiness | `GET /ready` | The process can serve. It probes Postgres and Redis and answers 503 when either is down |
+
+Point the orchestrator's liveness probe at `/healthz` and its readiness probe at `/ready`. Wiring liveness to `/ready` causes a restart loop during any dependency blip.
+
+## Object storage
+
+The api refuses to start without `STORAGE_ENDPOINT`, `STORAGE_BUCKET` and a key pair, the same way it refuses to start without a database. Note attachments are written through it, and a build that cannot reach a bucket would accept an upload it cannot keep.
+
+Two rules the environment has to satisfy:
+
+- **The browser-facing endpoint is HTTPS in production.** Presigned links are signed for a host, so the api signs them for `STORAGE_PUBLIC_ENDPOINT` when it is set and for `STORAGE_ENDPOINT` otherwise, and `envSchema` requires HTTPS on whichever of the two the browser will use. The api may reach the store on an in-cluster address such as `http://objects:9000` through `STORAGE_ENDPOINT`, as long as `STORAGE_PUBLIC_ENDPOINT` names the HTTPS origin that fronts the same bucket. A proxy in front of that origin must pass the `Host` header through unchanged, because rewriting it breaks the signature
+- **The bucket is private.** Objects reach the browser through presigned links that expire after `STORAGE_URL_EXPIRY_SECONDS`, never through public read. Each link signs `response-content-type` and `response-content-disposition=inline` into its query, so the store answers with the image type the api sniffed from the bytes on upload rather than whatever the uploader claimed
+
+Storage is deliberately **not** part of `/ready`. A bucket outage stops image uploads and leaves every other route working, so taking the instance out of rotation for it would turn a degraded feature into an outage. The failure surfaces as a `storage` error in the logs, while the person uploading sees the same generic internal error as any other failed dependency, so the response never names the subsystem that failed.
+
+Request bodies are capped before they are read: 1 MiB on every route, and the attachment maximum plus 64 KiB of multipart overhead on the two upload routes (`/rpc/note/attachment/upload` and `POST /api/notes/{noteId}/attachments`). Anything larger is answered with 413 without being buffered.
+
+## Rollback
+
+Roll back by deploying the previous image tag. Confirm with `/health`, which reports the version that is actually running.
+
+Migrations are the constraint: there is no `down` migration, so a rollback of code is safe only while the newer schema still satisfies the older code. A rollback across a destructive migration is not a rollback at all, it is a restore, and it belongs in [backup-restore.md](backup-restore.md). Keeping that from happening is what the next section is for.
+
+## Expand and contract
+
+**A migration may not break the code that is currently running.** During a rolling deploy both the old and the new build serve traffic at the same time, so any change that the old build cannot survive takes the site down the moment it lands, and rolling the code back does not bring it up again.
+
+Every schema change is therefore split across two releases:
+
+| Phase | Release | What it does |
+|---|---|---|
+| Expand | First | Add the new column or table. It is nullable or has a default, so existing rows need no backfill. The new build writes to both the old and the new shape |
+| Contract | Second, once the first is fully rolled out | Remove the old column or table. Nothing reads it any more, so nothing breaks |
+
+That means renaming a column is never one migration. Add the new one, backfill it, write to both, and drop the old one in a later release. The same applies to dropping anything, and to tightening an existing column to `NOT NULL`, which fails on the next insert from a build that still writes null.
+
+Additive changes are unaffected. `CREATE TABLE`, `CREATE INDEX`, and `ADD COLUMN` with a default or nullable are safe in a single release, and that is the large majority of schema work.
+
+### Enforcement
+
+`moon run api:migrations` fails the build on `DROP COLUMN`, `RENAME COLUMN`, `DROP TABLE`, and `SET NOT NULL` in `apps/api/drizzle`. It runs in CI as a dependency of `api:build`, so an unsafe migration cannot reach `trunk` by being missed in review.
+
+The contract phase is legitimate, so there is a way through. Put this at the top of the migration file:
+
+```sql
+-- migration-safety: contract-phase
+```
+
+That marks the removal as the deliberate second half of an expand and contract, and it is visible in the diff, so the reviewer sees the claim being made rather than a rule quietly bypassed. Use it when the expand phase is already deployed everywhere, and not before.
+
+`0003_brown_silk_fever.sql` renamed two columns in a single migration and predates this policy. It is listed as an exception in `apps/api/scripts/migration-rules.ts` rather than rewritten, since it shipped long ago. It is also the concrete example of what this rule exists to prevent.
+
+## Several apps on one database
+
+The API owns the `public` schema and drizzle's default migration journal, `drizzle.__drizzle_migrations`, which `apps/api/src/scripts/migrate.ts` names explicitly because `migrationsRun` makes the journal location a required choice. Any other app that shares the database keeps out of both:
+
+- its tables are declared with `pgSchema("<app>")`, never in `public`
+- its `drizzle.config.ts` sets `schemaFilter: ["<app>"]`, so `db:push` and `db:pull` only ever look at its own schema and never offer to drop the other app's tables
+- it runs `migrationsRun` with `migrationsSchema: "<app>_migrations"`, so its journal is `<app>_migrations.__drizzle_migrations`
+
+The journal schema sits outside `schemaFilter` on purpose, which is also why the API's journal lives in `drizzle` rather than `public`. Drizzle-kit's Postgres introspection does not skip the journal table, so a journal inside the filtered schema looks to `db:push` like a table missing from the code, and `db:push` offers to drop it (silently with `--force`). Without its journal, the next `migrate` replays every migration from the start.
+
+The journal is the part that bites silently. Drizzle applies only the migrations that are newer than the latest entry in the journal it reads, so two apps writing one journal means that a migration of the second app generated before the first app's latest one is skipped without any error. A separate journal per app removes that outcome. An app with a database of its own follows the same convention, because it costs nothing and it is what makes moving to a shared database a change of `DATABASE_URL` and nothing else.
+
+## Staged rollout
+
+Not implemented, and declined on purpose. There are no feature flags, no canary and no percentage rollout: every deploy reaches every user at once.
+
+What the release machinery gives instead is recovery, not containment. A release is a tag whose version is verified against `package.json` and cut only from a commit where all three required checks are green, the image is pinned to that tag rather than `latest`, `/health` reports the version actually serving, and `moon run api:migrations` refuses a destructive migration, so a rollback never lands on a schema the older build cannot read. A bad release is therefore identifiable, and reversible in one deploy.
+
+What it does not give is a smaller blast radius. Between the moment a bad build starts serving and the moment someone notices, everybody is on it. That window is exactly what a staged rollout buys down, and nothing above substitutes for it.
+
+The trade is accepted while the cost sits the way it does now. A flag is a branch in the code and a second state to test, a flag nobody deletes becomes a permanent fork of the product, and a canary needs at least two independently routable instances plus metrics sliced per instance for the comparison to mean anything. None of that is free, and today it would be paid to protect a deploy that can already be undone in minutes.
+
+Revisit when any of this becomes true:
+
+- a release goes out broken and users see it before the alerts do
+- the traffic is large enough that a full blast radius costs more than maintaining flags
+- a change has to reach a subset of users by design rather than out of caution

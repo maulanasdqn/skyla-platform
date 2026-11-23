@@ -1,0 +1,34 @@
+{
+	"name": "@app/api-e2e",
+	"version": "0.8.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"e2e": "vitest run",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@app/activity": "workspace:*",
+		"@app/api": "workspace:*",
+		"@app/contract": "workspace:*",
+		"@app/metrics": "workspace:*",
+		"@app/migrations": "workspace:*",
+		"@app/permissions": "workspace:*",
+		"@app/queue": "workspace:*",
+		"@app/schemas": "workspace:*",
+		"@app/version": "workspace:*",
+		"@orpc/client": "catalog:",
+		"@types/pg": "catalog:",
+		"amqplib": "catalog:",
+		"drizzle-kit": "catalog:",
+		"drizzle-orm": "catalog:",
+		"jose": "catalog:",
+		"pg": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	},
+	"dependencies": {
+		"@mobily/ts-belt": "catalog:",
+		"ts-pattern": "catalog:"
+	}
+}
